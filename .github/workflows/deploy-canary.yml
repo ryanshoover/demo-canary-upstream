@@ -104,8 +104,8 @@ jobs:
             env="dev"
           fi
 
-          # Ensure environment name is 13 characters or less and has no special characters    
-          env="${env:0:13}"
+          # Ensure environment name is 11 characters or less and has no special characters    
+          env="${env:0:11}"
           env=$(echo "$env" | sed 's/[^a-zA-Z0-9]/-/g')
 
           # Export environment name
