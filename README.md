@@ -9,3 +9,14 @@ The default branch for this repo is the `canary` branch. It's meant to be a bran
 The `canary` branch automatically deploys to the dev environment of any sites tagged as `canary` sites.
 
 If you create PRs into other branches, those branches will create multidevs and automatically deploy to a dedicated multidev.
+
+## Configuration
+
+The GitHub action requires the following secrets and variables set up:
+
+| Type | Name | Value |
+|------|------|-------|
+| Secret | TERMINUS_TOKEN | Machine token for the user account that will deploy the code |
+| Variable | CANARY_TAG_NAME | Pantheon site tag that marks which sites are canary sites |
+| Variable | ORG_GUID | The organization's GUID that uses the upstream |
+| Variable | UPSTREAM_GUID | The upstream's GUID inside Pantheon |
