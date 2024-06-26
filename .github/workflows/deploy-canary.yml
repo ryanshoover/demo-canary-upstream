@@ -1,4 +1,4 @@
-name: Build, deploy and test
+name: Deploy to canary sites
 on:
   push:
     branches:
@@ -8,49 +8,90 @@ on:
       - canary
 
 jobs:
-  identify_sites:
+  configure_env:
+    name: Configure environment and Terminus
     runs-on: ubuntu-latest
-    outputs:
-      sites: $
-
     steps:
+      - name: Restore cached config
+        id: restore-cached-config
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.ssh
+          key: ${{ runner.os }}-config-${{ github.run_id }}
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.2"
 
-      - name: Installing Terminus
+      - name: Install Terminus
         uses: pantheon-systems/terminus-github-actions@main
         with:
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
 
-      - name: Find and export canary sites
+      - name: Create SSH key & add to Pantheon
         run: |
-          SITES=$( terminus org:site:list --upstream={{ env.UPSTREAM_GUID }} --tag={{ env.CANARY_TAG_NAME }} --field=name -- {{ env.ORG_GUID }} )
-          SITES_ARRAY=()
-          echo $SITES | while IFS= read -r SITE; do
-            SITES_ARRAY+=("\"$SITE\"")
-          done
-          echo "sites=[${SITES_ARRAY[*]}] >> $GITHUB_OUTPUT"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -m PEM -t rsa -b 4096 -N '' -C 'CI+deployment+${{ github.run_id }}' -f ~/.ssh/pantheon
+          terminus ssh-key:add ~/.ssh/pantheon.pub
+
+      - name: Save config to cache
+        id: cache-config
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.ssh
+          key: ${{ runner.os }}-config-${{ github.run_id }}
+
+  identify_sites:
+    runs-on: ubuntu-latest
+    needs: configure_env
+    outputs:
+      sites: ${{ steps.findSites.outputs.sites }}
+    steps:
+      - name: Restore cached config
+        id: restore-cached-config
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.ssh
+          key: ${{ runner.os }}-config-${{ github.run_id }}
+
+      - name: Install Terminus
+        uses: pantheon-systems/terminus-github-actions@main
+        with:
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      - name: Find canary sites
+        id: findSites
+        run: |
+          SITES=$(terminus org:site:list --upstream="${{ vars.UPSTREAM_GUID }}" --tag="${{ vars.CANARY_TAG_NAME }}" --field="name" ${{ vars.ORG_GUID }})
+          SITE_JSON=$(echo $SITES | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "sites=$SITE_JSON" >> $GITHUB_OUTPUT
+
 
   deploy_to_pantheon:
     runs-on: ubuntu-latest
-    needs: identify_sites
+    needs: [ identify_sites, configure_env ]
     strategy:
       matrix:
         site: ${{ fromJSON(needs.identify_sites.outputs.sites) }}
     steps:
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.2"
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Installing Terminus
+      - name: Restore cached config
+        id: restore-cached-config
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.ssh
+          key: ${{ runner.os }}-config-${{ github.run_id }}
+
+      - name: Install Terminus
         uses: pantheon-systems/terminus-github-actions@main
         with:
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
@@ -58,7 +99,7 @@ jobs:
       - name: Determine target environment for deploy
         run: |
           # Identify environment based on branch name
-          env={{ github.ref_name }}
+          env=${{ github.ref_name }}
           if [ "$env" == "canary" ]; then
             env="dev"
           fi
@@ -71,24 +112,41 @@ jobs:
           echo "env=$env" >> $GITHUB_ENV
 
       - name: Ensure environment exists and is in git mode
-        env:
-          site: $
-          env: $
         run: |
           # Create multidev environment if it doesn't exist
-          if ! terminus env:list $site --field=ID | grep $env; then
-            terminus env:create $site.dev $env
+          if ! terminus env:list ${{ matrix.site }} --field=ID | grep $env; then
+            terminus env:create ${{ matrix.site }}.dev $env
           fi
 
           # Ensure environment is in git mode
-          terminus connection:set $site.$env git
+          terminus connection:set ${{ matrix.site }}.$env git
 
       - name: Push branch to Pantheon
-        env:
-          site: $
-          env: $
         run: |
           branch=$( [ "$env" == "dev" ] && echo "master" || echo "$env" )
-          GIT_URL=$(terminus connection:info $site.$env --field=git_url)
-          git remote add pantheon $GIT_URL
-          git push pantheon $env --force
+          git config --local core.sshCommand 'ssh -i ~/.ssh/pantheon -o StrictHostKeyChecking=no'
+          git remote add pantheon $(terminus connection:info ${{ matrix.site }}.$env --field=git_url)
+          git fetch --all
+          git push pantheon ${{ github.ref_name }}:$branch --force
+
+  spin_down:
+    name: Spin down environment
+    needs: deploy_to_pantheon
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore cached config
+        id: restore-cached-config
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.ssh
+          key: ${{ runner.os }}-config-${{ github.run_id }}
+
+      - name: Install Terminus
+        uses: pantheon-systems/terminus-github-actions@main
+        with:
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      - name: Remove deploy SSH key from Pantheon
+        run: terminus ssh-key:remove "$( terminus ssh-key:list --field=id --filter="comment=CI+deployment+${{ github.run_id }}" )"
