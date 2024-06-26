@@ -26,8 +26,9 @@ jobs:
 
       - name: Find and export canary sites
         run: |
+          SITES=$( terminus org:site:list --upstream={{ env.UPSTREAM_GUID }} --tag={{ env.CANARY_TAG_NAME }} --field=name -- {{ env.ORG_GUID }} )
           SITES_ARRAY=()
-          terminus org:site:list --upstream={{ env.UPSTREAM_GUID }} --tag={{ env.CANARY_TAG_NAME }} --field=name -- {{ env.ORG_GUID }} | while IFS= read -r SITE; do
+          echo $SITES | while IFS= read -r SITE; do
             SITES_ARRAY+=("\"$SITE\"")
           done
           echo "sites=[${SITES_ARRAY[*]}] >> $GITHUB_OUTPUT"
