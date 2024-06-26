@@ -1,0 +1,93 @@
+name: Build, deploy and test
+on:
+  push:
+    branches:
+      - canary
+  pull_request:
+    branches:
+      - canary
+
+jobs:
+  identify_sites:
+    runs-on: ubuntu-latest
+    outputs:
+      sites: $
+
+    steps:
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+
+      - name: Installing Terminus
+        uses: pantheon-systems/terminus-github-actions@main
+        with:
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      - name: Find and export canary sites
+        run: |
+          SITES_ARRAY=()
+          terminus org:site:list --upstream={{ env.UPSTREAM_GUID }} --tag={{ env.CANARY_TAG_NAME }} --field=name -- {{ env.ORG_GUID }} | while IFS= read -r SITE; do
+            SITES_ARRAY+=("\"$SITE\"")
+          done
+          echo "sites=[${SITES_ARRAY[*]}] >> $GITHUB_OUTPUT"
+
+  deploy_to_pantheon:
+    runs-on: ubuntu-latest
+    needs: identify_sites
+    strategy:
+      matrix:
+        site: ${{ fromJSON(needs.identify_sites.outputs.sites) }}
+    steps:
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installing Terminus
+        uses: pantheon-systems/terminus-github-actions@main
+        with:
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      - name: Determine target environment for deploy
+        run: |
+          # Identify environment based on branch name
+          env={{ github.ref_name }}
+          if [ "$env" == "canary" ]; then
+            env="dev"
+          fi
+
+          # Ensure environment name is 13 characters or less and has no special characters    
+          env="${env:0:13}"
+          env=$(echo "$env" | sed 's/[^a-zA-Z0-9]/-/g')
+
+          # Export environment name
+          echo "env=$env" >> $GITHUB_ENV
+
+      - name: Ensure environment exists and is in git mode
+        env:
+          site: $
+          env: $
+        run: |
+          # Create multidev environment if it doesn't exist
+          if ! terminus env:list $site --field=ID | grep $env; then
+            terminus env:create $site.dev $env
+          fi
+
+          # Ensure environment is in git mode
+          terminus connection:set $site.$env git
+
+      - name: Push branch to Pantheon
+        env:
+          site: $
+          env: $
+        run: |
+          branch=$( [ "$env" == "dev" ] && echo "master" || echo "$env" )
+          GIT_URL=$(terminus connection:info $site.$env --field=git_url)
+          git remote add pantheon $GIT_URL
+          git push pantheon $env --force
