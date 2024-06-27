@@ -8,6 +8,15 @@ on:
       - canary
 
 jobs:
+  debug: 
+    name: Debugging
+    runs-on: ubuntu-latest
+    steps:
+      - name: debug
+        run: |
+          echo ${{ github.event_name }}
+          echo ${{ github.ref_name }}
+
   configure_env:
     name: Configure environment and Terminus
     runs-on: ubuntu-latest
