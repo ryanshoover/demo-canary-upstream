@@ -12,12 +12,11 @@ jobs:
     name: Configure environment and Terminus
     runs-on: ubuntu-latest
     steps:
-      - name: Restore cached config
-        id: restore-cached-config
+      - name: Restore ssh config cache
+        id: restore-ssh-config
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.ssh
+          path: ~/.ssh
           key: ${{ runner.os }}-config-${{ github.run_id }}
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -36,12 +35,11 @@ jobs:
           ssh-keygen -m PEM -t rsa -b 4096 -N '' -C 'CI+deployment+${{ github.run_id }}' -f ~/.ssh/pantheon
           terminus ssh-key:add ~/.ssh/pantheon.pub
 
-      - name: Save config to cache
-        id: cache-config
+      - name: Save ssh config to cache
+        id: save-ssh-config
         uses: actions/cache/save@v4
         with:
-          path: |
-            ~/.ssh
+          path: ~/.ssh
           key: ${{ runner.os }}-config-${{ github.run_id }}
 
   identify_sites:
@@ -50,12 +48,11 @@ jobs:
     outputs:
       sites: ${{ steps.findSites.outputs.sites }}
     steps:
-      - name: Restore cached config
-        id: restore-cached-config
+      - name: Restore ssh config cache
+        id: restore-ssh-config
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.ssh
+          path: ~/.ssh
           key: ${{ runner.os }}-config-${{ github.run_id }}
 
       - name: Install Terminus
@@ -66,8 +63,10 @@ jobs:
       - name: Find canary sites
         id: findSites
         run: |
+          # Get list of sites with the canary tag using the upstream in our organization
           SITES=$(terminus org:site:list --upstream="${{ vars.UPSTREAM_GUID }}" --tag="${{ vars.CANARY_TAG_NAME }}" --field="name" ${{ vars.ORG_GUID }})
           SITE_JSON=$(echo $SITES | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          # Export the list of sites for the matrix
           echo "sites=$SITE_JSON" >> $GITHUB_OUTPUT
 
 
@@ -83,16 +82,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore cached config
-        id: restore-cached-config
+      - name: Restore ssh config cache
+        id: restore-ssh-config
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.ssh
+          path: ~/.ssh
           key: ${{ runner.os }}-config-${{ github.run_id }}
 
       - name: Install Terminus
-        uses: pantheon-systems/terminus-github-actions@main
+        uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
 
@@ -123,7 +121,10 @@ jobs:
 
       - name: Push branch to Pantheon
         run: |
+          # The dev environment is always based on the master branch
           branch=$( [ "$env" == "dev" ] && echo "master" || echo "$env" )
+
+          # Configure git to use the SSH key and avoid host key checking
           git config --local core.sshCommand 'ssh -i ~/.ssh/pantheon -o StrictHostKeyChecking=no'
           git remote add pantheon $(terminus connection:info ${{ matrix.site }}.$env --field=git_url)
           git fetch --all
@@ -135,12 +136,11 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Restore cached config
-        id: restore-cached-config
+      - name: Restore ssh config cache
+        id: restore-ssh-config
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.ssh
+          path: ~/.ssh
           key: ${{ runner.os }}-config-${{ github.run_id }}
 
       - name: Install Terminus
@@ -148,5 +148,5 @@ jobs:
         with:
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
 
-      - name: Remove deploy SSH key from Pantheon
+      - name: Remove SSH key from Pantheon
         run: terminus ssh-key:remove "$( terminus ssh-key:list --field=id --filter="comment=CI+deployment+${{ github.run_id }}" )"
