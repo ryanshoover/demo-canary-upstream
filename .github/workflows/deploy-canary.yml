@@ -96,8 +96,16 @@ jobs:
 
       - name: Determine target environment for deploy
         run: |
-          # Identify environment based on branch name
-          env=${{ github.ref_name }}
+          # Determine the environment name based on the event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Use the PR number as the environment name
+            env=$(echo ${{ github.ref_name }} | sed 's|^\([0-9]*\)/.*|pr-\1|')
+          else
+            # Use the branch name as the environment name
+            env=${{ github.ref_name }}
+          fi
+
+          # The canary branch maps to the dev environment
           if [ "$env" == "canary" ]; then
             env="dev"
           fi
@@ -121,14 +129,18 @@ jobs:
 
       - name: Push branch to Pantheon
         run: |
+          curr_branch=$( git branch --show-current )
           # The dev environment is always based on the master branch
-          branch=$( [ "$env" == "dev" ] && echo "master" || echo "$env" )
+          dest_branch=$( [ "$env" == "dev" ] && echo "master" || echo "$env" )
 
           # Configure git to use the SSH key and avoid host key checking
           git config --local core.sshCommand 'ssh -i ~/.ssh/pantheon -o StrictHostKeyChecking=no'
           git remote add pantheon $(terminus connection:info ${{ matrix.site }}.$env --field=git_url)
           git fetch --all
-          git push pantheon ${{ github.ref_name }}:$branch --force
+          echo "git push pantheon $curr_branch:$dest_branch --force"
+          git status
+          git branch --show-current
+          # git push pantheon $curr_branch:$dest_branch --force
 
   spin_down:
     name: Spin down environment
