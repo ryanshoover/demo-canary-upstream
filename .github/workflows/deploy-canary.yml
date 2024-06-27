@@ -137,6 +137,7 @@ jobs:
           git config --local core.sshCommand 'ssh -i ~/.ssh/pantheon -o StrictHostKeyChecking=no'
           git remote add pantheon $(terminus connection:info ${{ matrix.site }}.$env --field=git_url)
           git fetch --all
+          echo "git push pantheon $curr_branch:$dest_branch --force"
           git push pantheon $curr_branch:$dest_branch --force
 
   spin_down:
