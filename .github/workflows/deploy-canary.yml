@@ -138,7 +138,9 @@ jobs:
           git remote add pantheon $(terminus connection:info ${{ matrix.site }}.$env --field=git_url)
           git fetch --all
           echo "git push pantheon $curr_branch:$dest_branch --force"
-          git push pantheon $curr_branch:$dest_branch --force
+          git status
+          git branch --show-current
+          # git push pantheon $curr_branch:$dest_branch --force
 
   spin_down:
     name: Spin down environment
