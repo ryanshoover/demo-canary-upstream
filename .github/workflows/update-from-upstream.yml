@@ -18,6 +18,10 @@ jobs:
 
       - name: Update from upstream
         run: |
+          # Set the git user
+          git config --local user.email "gh-actions@pantheon.io"
+          git config --local user.name "GitHub Actions"
+
           # If the target branch does not exist, create it
           git show-ref --verify --quiet refs/heads/${{ inputs.targetBranch }} || git checkout -b ${{ inputs.targetBranch }}
           
