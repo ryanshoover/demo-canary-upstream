@@ -1,0 +1,35 @@
+name: Update repo from Pantheon Upstream
+
+on: 
+  workflow_dispatch:
+    inputs:
+      targetBranch:
+        description: 'Target branch'
+        required: true
+        default: 'canary'
+        type: string
+
+jobs:
+  update_from_upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Update from upstream
+        run: |
+          # If the target branch does not exist, create it
+          git show-ref --verify --quiet refs/heads/${{ inputs.targetBranch }} || git checkout -b ${{ inputs.targetBranch }}
+          
+          # Ensure we're on the target branch
+          git checkout ${{ inputs.targetBranch }}
+
+          # Add the Pantheon WordPress upstream
+          git remote add pantheon-wordpress https://github.com/pantheon-systems/WordPress.git
+          git fetch pantheon-wordpress
+
+          # Merge the upstream changes
+          git merge pantheon-wordpress/master
+
+          # Push the changes to the target branch
+          git push origin ${{ inputs.targetBranch }}
