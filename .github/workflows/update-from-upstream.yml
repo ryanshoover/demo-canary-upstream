@@ -29,7 +29,7 @@ jobs:
           git fetch pantheon-wordpress
 
           # Merge the upstream changes
-          git rebase pantheon-wordpress/master
+          git rebase -Xtheirs pantheon-wordpress/master
 
           # Push the changes to the target branch
           git push origin ${{ inputs.targetBranch }}
